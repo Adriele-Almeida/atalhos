@@ -170,31 +170,89 @@ function migrate(arr){
   });
 }
 
-// ---- storage layer: db capability (sync, cross-device) with localStorage fallback ----
-let db = null;
-async function initStorage(){
-  try{
-    if(window.claude && window.claude.use){ db = await window.claude.use("db"); }
-  }catch(e){ db = null; }
-  const st = document.getElementById("statusText");
-  st.textContent = db ? "SYNC" : "LOCAL";
+// ---- storage layer: Supabase sync across devices + localStorage fallback ----
+const SUPABASE_URL = "https://rlrtpastjkltutxbftql.supabase.co";
+const SUPABASE_KEY = "sb_publishable_2UDTBr-_x-LBhKd9vkfVag_KYeqC_jh";
+const SUPABASE_TABLE = "atalhos_hub_state";
+const CLOUD_ID = "main";
+let cloudReady = false;
+
+async function cloudRequest(query, options={}){
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}${query}`, {
+    ...options,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  if(!response.ok) throw new Error(`Supabase ${response.status}`);
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
-async function loadShortcuts(){
-  if(db){
-    try{
-      const doc = await db.doc("hub/shortcuts").get();
-      if(doc && doc.data && Array.isArray(doc.data.items)) return migrate(doc.data.items);
-    }catch(e){}
+
+async function initStorage(){
+  const st = document.getElementById("statusText");
+  try{
+    const rows = await cloudRequest(`?id=eq.${CLOUD_ID}&select=id`);
+    cloudReady = Array.isArray(rows);
+  }catch(e){
+    cloudReady = false;
   }
+  st.textContent = cloudReady ? "SYNC" : "LOCAL";
+}
+
+function readLocalShortcuts(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(raw){ const v = JSON.parse(raw); if(Array.isArray(v) && v.length) return migrate(v); }
+    if(raw){
+      const value = JSON.parse(raw);
+      if(Array.isArray(value) && value.length) return migrate(value);
+    }
   }catch(e){}
-  return DEFAULTS;
+  return null;
 }
+
+async function loadShortcuts(){
+  const local = readLocalShortcuts();
+
+  if(cloudReady){
+    try{
+      const rows = await cloudRequest(`?id=eq.${CLOUD_ID}&select=items`);
+      const cloudItems = rows && rows[0] && rows[0].items;
+
+      if(Array.isArray(cloudItems) && cloudItems.length){
+        const synced = migrate(cloudItems);
+        try{ localStorage.setItem(LS_KEY, JSON.stringify(synced)); }catch(e){}
+        return synced;
+      }
+
+      if(local && local.length){
+        await saveShortcuts(local);
+        return local;
+      }
+    }catch(e){}
+  }
+
+  return local || DEFAULTS;
+}
+
 async function saveShortcuts(list){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(list)); }catch(e){}
-  if(db){ try{ await db.doc("hub/shortcuts").set({items:list}); }catch(e){} }
+
+  if(cloudReady){
+    try{
+      await cloudRequest("?on_conflict=id", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({
+          id: CLOUD_ID,
+          items: list,
+          updated_at: new Date().toISOString()
+        })
+      });
+    }catch(e){}
+  }
 }
 
 // ---- state ----
