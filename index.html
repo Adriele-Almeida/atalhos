@@ -40,7 +40,7 @@ button{font-family:inherit;cursor:pointer}
 .panel .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
 .x{width:30px;height:30px;border-radius:50%;border:1px solid var(--border);background:var(--panel);color:#6A8AB0;display:grid;place-items:center}
 label{display:block;font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
-input[type=text],input[type=url],input[type=email],input[type=password]{width:100%;height:50px;border-radius:14px;border:1px solid var(--border);background:var(--bg);
+input[type=text],input[type=url]{width:100%;height:50px;border-radius:14px;border:1px solid var(--border);background:var(--bg);
   color:#fff;padding:0 14px;font-size:14px;outline:none;margin-bottom:16px}
 input:focus{border-color:var(--accent)}
 .icons{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;border:1px solid var(--border);background:var(--bg);border-radius:14px;padding:10px;margin-bottom:18px}
@@ -80,11 +80,6 @@ footer p{margin:0;font-size:11px;line-height:1.5;color:#7FA7D0}
   border-radius:12px;padding:10px 12px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#4A6E92}
 .sdot{width:6px;height:6px;border-radius:50%;background:#34D399;box-shadow:0 0 8px rgba(52,211,153,.7)}
 .sdot.off{background:#F5B942;box-shadow:0 0 8px rgba(245,185,66,.6)}
-.authGate{position:fixed;inset:0;background:var(--bg);background-image:radial-gradient(90% 70% at 50% 0%,#1E3D6B 0%,#132A4C 25%,#0D1B33 55%,#070E1E 85%);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px}
-.authBox{width:100%;max-width:340px;border:1px solid var(--border);background:rgba(13,27,51,.96);border-radius:24px;padding:24px}
-.authTitle{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
-.authText{font-size:12px;line-height:1.5;color:var(--muted2);margin-bottom:20px}
-.authError{min-height:18px;margin-top:12px;font-size:11px;line-height:1.4;color:#ff9fae;text-align:center}
 .overlay{position:fixed;inset:0;background:rgba(3,8,18,.75);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:300;padding:24px}
 .modalBox{width:100%;max-width:300px;background:linear-gradient(#132A4C,#0D1B33);border:1px solid var(--border);border-radius:22px;padding:24px;text-align:center}
 .modalMsg{font-size:13px;line-height:1.5;margin-bottom:18px;color:#DCE9FB}
@@ -95,18 +90,6 @@ svg{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-lin
 </style>
 </head>
 <body>
-<div class="authGate" id="authGate" style="display:none">
-  <div class="authBox">
-    <div class="authTitle">MEU HUB</div>
-    <div class="authText">Entre para acessar seus atalhos sincronizados.</div>
-    <label>E-mail</label>
-    <input type="email" id="authEmail" autocomplete="email" autocapitalize="none">
-    <label>Senha</label>
-    <input type="password" id="authPassword" autocomplete="current-password">
-    <button class="submit" id="authBtn">ENTRAR</button>
-    <div class="authError" id="authError"></div>
-  </div>
-</div>
 <div class="wrap">
   <div class="toprow">
     <div>
@@ -147,7 +130,6 @@ svg{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-lin
   <div id="listArea"></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.1"></script>
 <script>
 const LS_KEY = "linkhub_v1";
 const ICONS = {
@@ -188,94 +170,32 @@ function migrate(arr){
   });
 }
 
-// ---- storage layer: Supabase autenticado + localStorage fallback ----
+// ---- storage layer: Supabase sync across devices + localStorage fallback ----
 const SUPABASE_URL = "https://rlrtpastjkltutxbftql.supabase.co";
 const SUPABASE_KEY = "sb_publishable_2UDTBr-_x-LBhKd9vkfVag_KYeqC_jh";
 const SUPABASE_TABLE = "atalhos_hub_state";
 const CLOUD_ID = "main";
-const AUTHORIZED_USER_ID = "06ce758b-c58e-4023-ae1c-126e9813b460";
-const AUTH_EMAIL_KEY = "linkhub_auth_email";
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true
-  }
-});
 let cloudReady = false;
-let appStarted = false;
 
-function showAuth(){
-  const gate = document.getElementById("authGate");
-  const email = document.getElementById("authEmail");
-  const password = document.getElementById("authPassword");
-  const error = document.getElementById("authError");
-  try{ email.value = localStorage.getItem(AUTH_EMAIL_KEY) || ""; }catch(e){}
-  password.value = "";
-  error.textContent = "";
-  gate.style.display = "flex";
-  setTimeout(()=>{ (email.value ? password : email).focus(); }, 50);
-}
-
-function hideAuth(){
-  document.getElementById("authGate").style.display = "none";
-}
-
-async function ensureAuth(){
-  const { data, error } = await supabaseClient.auth.getSession();
-  const session = !error && data ? data.session : null;
-  if(session && session.user && session.user.id === AUTHORIZED_USER_ID){
-    hideAuth();
-    return true;
-  }
-  if(session){
-    try{ await supabaseClient.auth.signOut(); }catch(e){}
-  }
-  showAuth();
-  return false;
-}
-
-async function signIn(){
-  const emailEl = document.getElementById("authEmail");
-  const passwordEl = document.getElementById("authPassword");
-  const btn = document.getElementById("authBtn");
-  const errorEl = document.getElementById("authError");
-  const email = emailEl.value.trim();
-  const password = passwordEl.value;
-
-  if(!email || !password){
-    errorEl.textContent = "Preencha e-mail e senha.";
-    return;
-  }
-
-  btn.disabled = true;
-  errorEl.textContent = "";
-  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-
-  if(error || !data.user || data.user.id !== AUTHORIZED_USER_ID){
-    if(data && data.session){
-      try{ await supabaseClient.auth.signOut(); }catch(e){}
+async function cloudRequest(query, options={}){
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}${query}`, {
+    ...options,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
     }
-    errorEl.textContent = error ? "E-mail ou senha incorretos." : "Este usuário não tem acesso aos atalhos.";
-    btn.disabled = false;
-    return;
-  }
-
-  try{ localStorage.setItem(AUTH_EMAIL_KEY, email); }catch(e){}
-  btn.disabled = false;
-  hideAuth();
-  await startApp();
+  });
+  if(!response.ok) throw new Error(`Supabase ${response.status}`);
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function initStorage(){
   const st = document.getElementById("statusText");
   try{
-    const { error } = await supabaseClient
-      .from(SUPABASE_TABLE)
-      .select("id")
-      .eq("id", CLOUD_ID)
-      .limit(1);
-    cloudReady = !error;
+    const rows = await cloudRequest(`?id=eq.${CLOUD_ID}&select=id`);
+    cloudReady = Array.isArray(rows);
   }catch(e){
     cloudReady = false;
   }
@@ -298,14 +218,8 @@ async function loadShortcuts(){
 
   if(cloudReady){
     try{
-      const { data, error } = await supabaseClient
-        .from(SUPABASE_TABLE)
-        .select("items")
-        .eq("id", CLOUD_ID)
-        .maybeSingle();
-
-      if(error) throw error;
-      const cloudItems = data && data.items;
+      const rows = await cloudRequest(`?id=eq.${CLOUD_ID}&select=items`);
+      const cloudItems = rows && rows[0] && rows[0].items;
 
       if(Array.isArray(cloudItems) && cloudItems.length){
         const synced = migrate(cloudItems);
@@ -328,14 +242,15 @@ async function saveShortcuts(list){
 
   if(cloudReady){
     try{
-      const { error } = await supabaseClient
-        .from(SUPABASE_TABLE)
-        .upsert({
+      await cloudRequest("?on_conflict=id", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({
           id: CLOUD_ID,
           items: list,
           updated_at: new Date().toISOString()
-        }, { onConflict: "id" });
-      if(error) throw error;
+        })
+      });
     }catch(e){}
   }
 }
@@ -571,34 +486,11 @@ function render(){
   }
 }
 
-async function startApp(){
-  if(appStarted) return;
-  appStarted = true;
+(async function init(){
   renderIconGrid();
   await initStorage();
   items = await loadShortcuts();
   render();
-}
-
-document.getElementById("authBtn").onclick = signIn;
-document.getElementById("authPassword").addEventListener("keydown", e=>{
-  if(e.key === "Enter") signIn();
-});
-document.getElementById("authEmail").addEventListener("keydown", e=>{
-  if(e.key === "Enter") document.getElementById("authPassword").focus();
-});
-
-supabaseClient.auth.onAuthStateChange((event, session)=>{
-  if(event === "SIGNED_OUT") showAuth();
-  if(session && session.user && session.user.id === AUTHORIZED_USER_ID){
-    hideAuth();
-    startApp();
-  }
-});
-
-(async function init(){
-  const ok = await ensureAuth();
-  if(ok) await startApp();
 })();
 </script>
 </body>
